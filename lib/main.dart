@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:convert' show json;
-import 'dart:async' show Timer;
-import 'src/window_functions.dart';
 
-void main() {
+import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'src/database_handler.dart';
+
+void main() async {
+  DBHandler.onCreate();
+  // DBHandler.getHashes().then((v) {
+  //   print(v);
+  // });
+
   runApp(
     MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -29,7 +36,6 @@ class _HomeState extends State<Home> {
     'ip': '192.168.1.110'
   };
   String statusText = "Запустить сервер";
-  List<String> listErrors = <String>["Error 1", "Error 2", "Error 3"];
   List<int> colorCodes = <int>[600, 500, 100];
   bool requestSent = false;
   bool serverStarted = false;
@@ -38,20 +44,47 @@ class _HomeState extends State<Home> {
 
   List<Map<String, dynamic>> bigData = [];
 
+  void loadData() {
+    DBHandler.addHashes((int res) {
+      if (res == 1) {
+        DBHandler.getHashes().then((v) {
+          print('DB Hashes -> ${v}');
+
+          for (var row in v) {
+            Map<String, dynamic> cache = {
+              'id': row['id'].toString(),
+              'msg': row['msg']
+            };
+            bigData.add(cache);
+          }
+          setState(() {});
+        });
+      }
+    });
+
+    // for (var msg in DBHandler.getHashes()) {
+    //   bigData.addAll(iterable)
+    // }
+  }
+
   startServer() {
     HttpServer.bind('0.0.0.0', 2222).then((HttpServer server) {
       _server = server;
-      print('[🚀] WebSocket слушает на -- ws://localhost:2222');
+
+      print('WebSocket слушает на - ws://localhost:2222');
 
       setState(() {
-        statusText = "Сервер запущен на порту : 2222 ✅";
+        statusText = "Сервер запущен на порту: 2222 ✅";
         serverStarted = !serverStarted;
+        bigData.clear();
       });
 
       server.listen((HttpRequest request) {
         var headers = request.headers;
 
-        if (headers['accept']?.first == 'application/json') {
+        if (headers['accept']?.first == 'application/json' ||
+            headers['accept-encoding']?.first == 'gzip' ||
+            headers['connection']?.first == 'Keep-Alive') {
           if (requestSent) return;
 
           String encodedInfo = json.encode(config);
@@ -84,10 +117,11 @@ class _HomeState extends State<Home> {
               'name': 'App 1'
             }));
             print(11111);
+            print(request.connectionInfo?.remoteAddress.address);
 
             ws.listen(
               (data) {
-                print('Data: ${data.toString()}');
+                print('Data: ${data.toString()}\n');
                 // print('${request.connectionInfo?.remoteAddress} -> ${json.decode(data)}');
                 // print('\t\t${request.connectionInfo?.remoteAddress} -- ${Map<String, String>.from(json.decode(data))}');
 
@@ -95,7 +129,7 @@ class _HomeState extends State<Home> {
                   // Конвертируем полученные данные от постера в Map<String, dynamic>
                   Map<String, dynamic> recievedData =
                       json.decode(data.toString());
-                  print('Action: ${recievedData["action"]}');
+                  print('Action: ${recievedData["action"]}\n');
 
                   setState(() {
                     bigData.add(recievedData);
@@ -120,28 +154,23 @@ class _HomeState extends State<Home> {
                       break;
                   }
                 } catch (err) {
-                  listErrors.add('[] Line: 91 Error -- ${err.toString()}');
+                  print('[] Line: 91 Error -- ${err.toString()}');
                 }
               },
-              onDone: () => print('[] Done :)'),
-              onError: (err) =>
-                  listErrors.add('[] Line: 96 Error -- ${err.toString()}'),
+              onDone: () => print('Подключение к терминалу завершено'),
+              onError: (err) => print('[] Line: 96 Error -- ${err.toString()}'),
               cancelOnError: false,
             );
           });
         }
         // print(request.method);
-      },
-          onError: (err) =>
-              listErrors.add('[] Line 102 Error -- ${err.toString()}'));
-    },
-        onError: (err) =>
-            listErrors.add('[] Line 103 Error -- ${err.toString()}'));
+      }, onError: (err) => print('[] Line 102 Error -- ${err.toString()}'));
+    }, onError: (err) => print('[] Line 103 Error -- ${err.toString()}'));
   }
 
   stopServer() {
     setState(() {
-      statusText = "Старт сервер 🚀";
+      statusText = "Запустить сервер 🚀";
       serverStarted = false;
       wsConn.close(1000, 'CLOSE_NORMAL');
       _server.close();
@@ -155,7 +184,24 @@ class _HomeState extends State<Home> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('WSServer Demo'),
+        title: Row(children: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                primary: Colors.purple,
+                padding: EdgeInsets.symmetric(horizontal: 50, vertical: 20),
+                textStyle:
+                    TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
+            onPressed: () {
+              // Send message
+              print('hello');
+              wsConn.add(json.encode({
+                'action': 'hello',
+              }));
+            },
+            child: const Text('Send'),
+          ),
+          Text('WSServer Demo'),
+        ]),
         actions: <Widget>[
           ElevatedButton(
             onPressed: () {
@@ -166,17 +212,36 @@ class _HomeState extends State<Home> {
         ],
       ),
       body: Center(
-        child: _OrderListWidget(statusText, bigData),
+        child: _OrderListWidget(statusText, bigData, loadData),
       ),
     );
   }
 }
 
-Widget _OrderListWidget(String statusText, List<Map<String, dynamic>> bigData) {
+Widget _OrderListWidget(
+    String statusText, List<Map<String, dynamic>> bigData, Function loadData) {
   return Column(
     mainAxisAlignment: MainAxisAlignment.center,
     crossAxisAlignment: CrossAxisAlignment.center,
     children: <Widget>[
+      Row(
+        children: [
+          Container(
+            color: Colors.cyan[100],
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  primary: Colors.purple,
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  textStyle:
+                      TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
+              child: const Text('Add hashes'),
+              onPressed: () {
+                loadData();
+              },
+            ),
+          ),
+        ],
+      ),
       Expanded(
         child: ListView.builder(
           itemCount: bigData.length,
