@@ -4,23 +4,21 @@ import 'dart:convert' show json;
 
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'src/hashes_database.dart';
+import 'src/database_handler.dart';
 
-void main() {
-  DBHandler.addHashes((data) {
-    print('${data.toString}');
-  });
-  // DBHandler.getHashes().then((v) {
-  //   print(v);
-  // });
+var data = [];
 
+void main() async {
+  data = await HashesDatabase.instance.readAllHashes();
+  print('Data: $data');
+
+  // Flutter UI
   runApp(
     MaterialApp(
       debugShowCheckedModeBanner: false,
       home: Home(),
     ),
   );
-  // testWindowFunctions();
 }
 
 class Home extends StatefulWidget {
@@ -44,29 +42,22 @@ class _HomeState extends State<Home> {
   late HttpServer _server;
   late WebSocket wsConn;
 
-  List<Map<String, dynamic>> bigData = [];
+  List<dynamic> bigData = data;
 
-  void loadData() {
-    DBHandler.addHashes((int res) {
-      if (res == 1) {
-        DBHandler.getHashes().then((v) {
-          print('DB Hashes -> ${v}');
+  void loadData() async {
+    Map<String, Object?> message = {'_hash': 'q1w2e3r'};
+    await HashesDatabase.instance.create(message);
 
-          for (var row in v) {
-            Map<String, dynamic> cache = {
-              'id': row['id'].toString(),
-              'msg': row['msg']
-            };
-            bigData.add(cache);
-          }
-          setState(() {});
-        });
-      }
-    });
+    bigData = await HashesDatabase.instance.readAllHashes();
+    setState(() {});
+  }
 
-    // for (var msg in DBHandler.getHashes()) {
-    //   bigData.addAll(iterable)
-    // }
+  void deleteMessage(int index) async {
+    int deletedRows = await HashesDatabase.instance.delete(index);
+
+    bigData = await HashesDatabase.instance.readAllHashes();
+    setState(() {});
+    print('Deleted [$deletedRows] rows');
   }
 
   startServer() {
@@ -214,14 +205,14 @@ class _HomeState extends State<Home> {
         ],
       ),
       body: Center(
-        child: _OrderListWidget(statusText, bigData, loadData),
+        child: _OrderListWidget(statusText, bigData, loadData, deleteMessage),
       ),
     );
   }
 }
 
-Widget _OrderListWidget(
-    String statusText, List<Map<String, dynamic>> bigData, Function loadData) {
+Widget _OrderListWidget(String statusText, List<dynamic> bigData,
+    Function loadData, Function deleteMessage) {
   return Column(
     mainAxisAlignment: MainAxisAlignment.center,
     crossAxisAlignment: CrossAxisAlignment.center,
@@ -262,23 +253,29 @@ Widget _OrderListWidget(
                   border: Border.all(color: Colors.black, width: 1),
                   borderRadius: BorderRadius.circular(5),
                 ),
-                child: Text('${bigData[index]}'),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('${bigData[index]} -> ${bigData[index]['_id']}'),
+                    _deleteButtonWidget(bigData[index]['_id'], deleteMessage),
+                  ],
+                ),
               ),
             );
           },
         ),
-
-        // ListView.builder(
-        //   itemCount: bigData.length,
-        //   itemBuilder: (context, i) {
-        //     return ListTile(
-        //       title: Text(
-        //         bigData[i].toString(),
-        //       ),
-        //     );
-        //   },
-        // ),
       ),
     ],
+  );
+}
+
+Widget _deleteButtonWidget(int index, Function deleteMessage) {
+  return IconButton(
+    icon: const Icon(Icons.delete),
+    color: Colors.red,
+    onPressed: () {
+      deleteMessage(index);
+      print('🗑 Delete [$index]');
+    },
   );
 }
