@@ -4,7 +4,7 @@ import 'dart:convert' show json;
 
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'src/database_handler.dart';
+import 'src/database_hashes.dart';
 
 var data = [];
 
